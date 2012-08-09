@@ -1,0 +1,8 @@
+<resources>
+
+    <string name="app_name">TickerView</string>
+    <string name="title_activity_demo">DemoActivity</string>
+    
+    <string name="loremipsum">Lorem ipsum dolor sit amet, consectetur adipisicing elit</string>
+
+</resources>
