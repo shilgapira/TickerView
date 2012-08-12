@@ -18,17 +18,6 @@ public class TickerView extends ViewGroup {
 
     public static final String TAG = "TickerView";
     
-    /** The delay before a view starts scrolling */
-    public static final int PRETICK_DELAY = 3000; /* ms */
-    
-    /** The delay after a view finished scrolling and before switching to the next one */
-    public static final int PRESWITCH_DELAY = 3000; /* ms */
-    
-    // Animation parameters
-    public static final float TICK_STEP_SIZE = 1.0f; /* dp */
-    public static final float SWITCH_STEP_SIZE = 1.0f; /* dp */
-    public static final int STEP_DURATION = 16; /* ms */
-
     /** Views will start aligned to the left and scroll to the right */
     public static final int DIRECTION_RIGHT = 0;
     
@@ -41,26 +30,29 @@ public class TickerView extends ViewGroup {
     /** Views will switch by scrolling upwards */
     public static final int DIRECTION_UP = 2;
 
+    /** The delay before a view starts scrolling */
+    private static final int PRETICK_DELAY = 3000; /* ms */
+    
+    /** The delay after a view finished scrolling and before switching to the next one */
+    private static final int PRESWITCH_DELAY = 3000; /* ms */
+    
+    /** How much dp to move the views each ticking step */
+    private static final float TICK_STEP_SIZE = 1.0f; /* dp */
+    
+    /** How much dp to move the views each switching step */
+    private static final float SWITCH_STEP_SIZE = 1.0f; /* dp */
+    
+    /** How long to wait between animation steps */
+    private static final int STEP_DURATION = 16; /* ms */
+
+    private int mDirection;
+    
     private Adapter mAdapter;
     
     private int mCurrent;
     
-    private int mDirection;
-    
     private Controller mController;
     
-    private float mTickOffset;
-    
-    private float mTickSize;
-    
-    private boolean mTickFinished;
-    
-    private float mSwitchOffset;
-    
-    private float mSwitchSize;
-    
-    private boolean mSwitchFinished;
-
     /**
      * Creates a new {@code TickerView} object.
      */
@@ -90,10 +82,8 @@ public class TickerView extends ViewGroup {
      */
     private void init() {
         mDirection = DIRECTION_RIGHT | DIRECTION_DOWN;
-        float scale = getResources().getDisplayMetrics().density;
-        mTickSize = TICK_STEP_SIZE * scale;
-        mSwitchSize = SWITCH_STEP_SIZE * scale;
         ensureAdapter();
+        restart();
     }
     
     /**
@@ -108,6 +98,7 @@ public class TickerView extends ViewGroup {
      */
     public void setDirection(int direction) {
         mDirection = direction;
+        restart();
     }
     
     /**
@@ -125,7 +116,7 @@ public class TickerView extends ViewGroup {
         if (mAdapter != adapter) {
             mAdapter = adapter;
             ensureAdapter();
-            start();
+            restart();
         }
     }
     
@@ -138,20 +129,13 @@ public class TickerView extends ViewGroup {
         }
     }
     
-    private void start() {
-        // reset state first
-        if (mController != null) {
-            mController.cancel();
-        }
-        removeAllViews();
-        resetTick();
-        mCurrent = 0;
+    private void restart() {
+        resetAll();
         
         // show a child view and start ticking
         if (mAdapter.getCount() > 0) {
             Log.i(TAG, "Displaying " + mAdapter.getCount() + " ticker items");
             addChild(mCurrent);
-            mController = new Controller();
             mController.start();
         }
     }
@@ -162,15 +146,16 @@ public class TickerView extends ViewGroup {
         addView(child);
     }
     
-    private void resetTick() {
-        mTickOffset = 0;
-        mTickFinished = false;
-        mSwitchOffset = 0;
-        mSwitchFinished = false;
+    private void resetAll() {
+        if (mController != null) {
+            mController.mCancelled = true;
+        }
+        mController = new Controller();
+        removeAllViews();
+        mCurrent = 0;
     }
     
-    private void performTickStep() {
-        mTickOffset += mTickSize;
+    private void update() {
         requestLayout();
     }
     
@@ -178,15 +163,9 @@ public class TickerView extends ViewGroup {
         addChild(mCurrent + 1);
     }
     
-    private void performSwitchStep() {
-        mSwitchOffset += mSwitchSize;
-        requestLayout();
-    }
-    
     private void finishSwitch() {
         mCurrent++;
         removeViewAt(0);
-        resetTick();
     }
     
     @Override
@@ -215,10 +194,10 @@ public class TickerView extends ViewGroup {
         int parentWidth = parentRight - parentLeft;
         int parentHeight = parentBottom - parentTop;
         
-        int switchOffset = Math.round(mSwitchOffset);
+        int switchOffset = Math.round(mController.mSwitchOffset);
         if (switchOffset >= parentHeight) {
             switchOffset = parentHeight;
-            mSwitchFinished = true;
+            mController.mSwitchFinished = true;
         }
         
         // the switching direction shifts all views up or down
@@ -244,14 +223,14 @@ public class TickerView extends ViewGroup {
                 
                 // the first child is always the one being ticked
                 if (i == 0) {
-                    tickOffset = Math.round(mTickOffset);
+                    tickOffset = Math.round(mController.mTickOffset);
                 }
 
                 // make sure offset is sane
                 int maxOffset = Math.max(0, childWidth - parentWidth);
                 if (maxOffset <= tickOffset) {
                     tickOffset = maxOffset;
-                    mTickFinished = true;
+                    mController.mTickFinished = true;
                 }
                 
                 // placement depends on the ticking direction
@@ -304,18 +283,25 @@ public class TickerView extends ViewGroup {
         
         private State mState;
         
-        private boolean mCancelled;
+        private float mScale;
         
+        public boolean mCancelled;
+        
+        public float mTickOffset;
+        
+        public boolean mTickFinished;
+        
+        public float mSwitchOffset;
+        
+        public boolean mSwitchFinished;
+
         public Controller() {
             mState = State.PRETICK;
+            mScale = getResources().getDisplayMetrics().density;
         }
         
         public void start() {
             step();
-        }
-        
-        public void cancel() {
-            mCancelled = true;
         }
         
         private void step() {
@@ -330,6 +316,11 @@ public class TickerView extends ViewGroup {
             
             switch (mState) {
                 case PRETICK:
+                    mTickOffset = 0;
+                    mTickFinished = false;
+                    mSwitchOffset = 0;
+                    mSwitchFinished = false;
+                    
                     nextState = State.TICK;
                     delay = PRETICK_DELAY;
                     break;
@@ -338,7 +329,8 @@ public class TickerView extends ViewGroup {
                     if (mTickFinished) {
                         nextState = State.PRESWITCH;
                     } else {
-                        performTickStep();
+                        mTickOffset += (TICK_STEP_SIZE * mScale);
+                        update();
                         delay = STEP_DURATION;
                     }
                     break;
@@ -354,7 +346,8 @@ public class TickerView extends ViewGroup {
                         finishSwitch();
                         nextState = State.PRETICK;
                     } else {
-                        performSwitchStep();
+                        mSwitchOffset += (SWITCH_STEP_SIZE * mScale);
+                        update();
                         delay = STEP_DURATION;
                     }
                     break;
